@@ -18,7 +18,6 @@ TCR-Net is a lightweight neural network for three-class risk assessment of power
 │   ├── training/trainer.py     Training loop, threshold calibration, evaluation
 │   ├── _export_report.py       Experiment data to CSV tables (internal)
 │   ├── _plot_results.py        Figure generation (internal)
-│   └── _latex_tools.py         LaTeX utilities (internal)
 ├── configs/                    # YAML experiment configs
 └── requirements.txt
 ```
