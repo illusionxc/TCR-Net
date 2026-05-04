@@ -1,15 +1,8 @@
-# ═══════════════════════════════════════════════════════════════════
-# TCR-Net 
-# ═══════════════════════════════════════════════════════════════════
-# 
-#  → runs/
-#      → figures/
-#      → data/mock/
-# ═══════════════════════════════════════════════════════════════════
+# TCR-Net default configuration
 
 seed: 42
 device: auto
-output_dir: runs/tcr_net             # 
+output_dir: runs/tcr_net
 
 data:
   source: synthetic                  # synthetic | station_jsonl
@@ -60,7 +53,6 @@ paper_train:
 
 paper_loss:
   lambda_pred: 0.20
-  lambda_proto: 0.25
   lambda_seq: 0.20
   lambda_cls: 1.00
   lambda_reg: 0.000001
@@ -84,12 +76,12 @@ paper_score:
 
 paper_rules:
   allowed_types:
-    - [0]  # inspection_photo
-    - [1]  # defect_form
-    - [2]  # maintenance_report
-    - [3]  # handover_doc
-    - [4]  # routine_record
-    - [5]  # equipment_log
+    - [0]
+    - [1]
+    - [2]
+    - [3]
+    - [4]
+    - [5]
   allowed_dst:
     - [0]
     - [2]

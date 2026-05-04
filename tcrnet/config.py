@@ -1,7 +1,7 @@
 """
-。
+Configuration loading utility.
 
- PyYAML（）（ PyYAML  fallback）。
+Supports PyYAML (full) and a simple parser (fallback without PyYAML).
 """
 
 from __future__ import annotations

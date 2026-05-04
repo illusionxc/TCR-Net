@@ -1,11 +1,11 @@
 """
-LaTeX  —— ， tcrnet/__init__.py 。
+LaTeX utilities -- internal module, not exposed via tcrnet/__init__.py.
 
-：
-1.  LaTeX （fill）
-2.  LaTeX （insert）
+Functions:
+    1. Fill LaTeX tables and figures with experiment data (fill)
+    2. Insert generated figures into LaTeX file (insert)
 
- tcrnet_paper_pipeline.py ，。
+Called by tcrnet_paper_pipeline.py, not as a standalone entry point.
 """
 
 from __future__ import annotations
@@ -19,13 +19,9 @@ from pathlib import Path
 import pandas as pd
 
 
-# ═══════════════════════════════════════════════════════════════════
-# LaTeX 
-# ═══════════════════════════════════════════════════════════════════
+# LaTeX environment locator (shared by both subcommands)
 
 def find_env_block(text: str, label: str, env: str) -> tuple[int, int] | None:
-    """
-"""
     label_token = rf"\label{{{label}}}"
     pos = text.find(label_token)
     if pos < 0:
@@ -34,7 +30,6 @@ def find_env_block(text: str, label: str, env: str) -> tuple[int, int] | None:
     begin_token = rf"\begin{{{env}}}"
     end_token = rf"\end{{{env}}}"
 
-    #  \begin{env}
     before = text[:pos]
     depth = 0
     begin_pos = -1
@@ -50,7 +45,6 @@ def find_env_block(text: str, label: str, env: str) -> tuple[int, int] | None:
     if begin_pos < 0:
         return None
 
-    #  \end{env}
     after = text[pos:]
     depth = 1
     end_pos = -1
@@ -70,7 +64,6 @@ def find_env_block(text: str, label: str, env: str) -> tuple[int, int] | None:
 
 
 def replace_env_by_label(text: str, label: str, env: str, new_block: str) -> tuple[str, bool]:
-    """..."""
     span = find_env_block(text, label, env)
     if span is None:
         return text, False
@@ -79,7 +72,6 @@ def replace_env_by_label(text: str, label: str, env: str, new_block: str) -> tup
 
 
 def remove_env_by_label(text: str, label: str, env: str) -> tuple[str, bool]:
-    """..."""
     span = find_env_block(text, label, env)
     if span is None:
         return text, False
@@ -87,9 +79,7 @@ def remove_env_by_label(text: str, label: str, env: str) -> tuple[str, bool]:
     return text[:begin] + text[end:], True
 
 
-# ═══════════════════════════════════════════════════════════════════
-# fill   LaTeX 
-# ═══════════════════════════════════════════════════════════════════
+# fill -- fill LaTeX tables and figures with experiment data
 
 TABLE_SPECS = {
     "tab:5_1": ("tab_5_1_data_source_label_distribution.csv", "table"),
@@ -363,14 +353,11 @@ def _figure_block(label: str, stem: str, caption: str, fig_dir: str) -> str:
 
 
 def _extract_caption(block: str) -> str:
-    """..."""
     m = re.search(r"\\caption\{([^}]*)\}", block)
     return m.group(1).strip() if m else "Figure."
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  LaTeX 
-# ═══════════════════════════════════════════════════════════════════
+# Unified LaTeX operation entry
 
 def fill_tables_and_figures(
     tex_path: str,
@@ -380,14 +367,11 @@ def fill_tables_and_figures(
     latex_figure_dir: str = "figures_auto",
     compact: bool = False,
 ) -> dict[str, int]:
-    """
-"""
     tex_path = Path(tex_path)
     report_dir = Path(report_data_dir)
     fig_src = Path(figure_source_dir)
     fig_dst = Path(figure_dest_dir)
     fig_dst.mkdir(parents=True, exist_ok=True)
-
 
     for src in fig_src.glob("*"):
         if src.suffix.lower() in {".pdf", ".png", ".csv"}:
@@ -424,7 +408,6 @@ def fill_tables_and_figures(
             text = text.replace(old, new)
             captions_updated += 1
 
-    #  figure 
     for old_ref, new_ref in {
         "Figure~5-1": r"Figure~\ref{fig:5_1}",
         "Figure~5-2": r"Figure~\ref{fig:5_2}",
@@ -439,7 +422,6 @@ def fill_tables_and_figures(
         for label, env in COMPACT_REMOVE_FIGURES.items():
             text, _ = remove_env_by_label(text, label, env)
 
-
     for phrase in ["(placeholder)", "(placeholder figure); ", " (placeholder figure)", " (placeholder)."]:
         text = text.replace(phrase, "")
     text = text.replace("  ", " ")
@@ -453,8 +435,6 @@ def insert_figures(
     figure_dir: str,
     ext: str = "pdf",
 ) -> int:
-    """
-"""
     tex_path = Path(tex_path)
     text = tex_path.read_text(encoding="utf-8")
 

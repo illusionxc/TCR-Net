@@ -1,11 +1,7 @@
 """
 Unified plotting module (refactored).
 
-：
-1)  3  panel figure
-2)  4-5 、2 （）
-3) //， KDD 
-4)  report_data CSV
+Goal: generate 3 main multi-panel figures + supplemental evidence charts.
 """
 
 from __future__ import annotations
@@ -31,34 +27,30 @@ MODEL_ORDER = [
 ]
 MODEL_SHORT = {
     "TCR-Net": "TCR-Net",
-    "Unified-Multimodal": "Unified-Multi",
+    "Unified-Multimodal": "Concat+MLP",
     "w/o Rule": "No-Rule",
     "Sequence+Semantic": "Seq+Sem",
     "Content+Semantic": "Content+Sem",
     "Content-Only": "Content-Only",
     "Rule-Based": "Rule-Based",
 }
-# <=4 colors for method comparisons (user requirement)
-# Figure-wise method palettes:
-# - Each method has unique color within a figure.
-# - fig_5_1 and fig_5_2 use different but internally consistent mappings.
 FIG1_METHOD_COLORS = {
-    "TCR-Net": "#C0392B",            # red
-    "Unified-Multimodal": "#2E86DE", # blue
-    "w/o Rule": "#8E44AD",           # purple
-    "Sequence+Semantic": "#16A085",  # green
-    "Content+Semantic": "#F39C12",   # orange
-    "Content-Only": "#7F8C8D",       # gray
-    "Rule-Based": "#1ABC9C",         # cyan-teal
+    "TCR-Net": "#C0392B",
+    "Unified-Multimodal": "#2E86DE",
+    "w/o Rule": "#8E44AD",
+    "Sequence+Semantic": "#16A085",
+    "Content+Semantic": "#F39C12",
+    "Content-Only": "#7F8C8D",
+    "Rule-Based": "#1ABC9C",
 }
 FIG2_METHOD_COLORS = {
-    "TCR-Net": "#E74C3C",            # bright red
-    "Unified-Multimodal": "#1F77B4", # deep blue
-    "w/o Rule": "#9467BD",           # lavender purple
-    "Sequence+Semantic": "#2CA02C",  # olive green
-    "Content+Semantic": "#FF7F0E",   # warm orange
-    "Content-Only": "#8C564B",       # brown
-    "Rule-Based": "#17BECF",         # cyan
+    "TCR-Net": "#E74C3C",
+    "Unified-Multimodal": "#1F77B4",
+    "w/o Rule": "#9467BD",
+    "Sequence+Semantic": "#2CA02C",
+    "Content+Semantic": "#FF7F0E",
+    "Content-Only": "#8C564B",
+    "Rule-Based": "#17BECF",
 }
 SUBSET_COLORS = {"all": "#E74C3C", "rule_active": "#2E86DE", "clean": "#16A085"}
 SCENARIO_COLORS = {
@@ -148,7 +140,6 @@ def _save(fig, out_dir: Path, stem: str) -> None:
 
 
 def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFrame, out_dir: Path) -> None:
-    # 2x5 large panel figure
     fig = plt.figure(figsize=(12.8, 4.6))
     gs = fig.add_gridspec(2, 5, wspace=0.32, hspace=0.38)
     axes = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(5)]
@@ -158,7 +149,6 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     d = d.sort_values("Method").reset_index(drop=True)
     x = np.arange(len(d))
 
-    # (a) Macro-F1 bars
     ax = axes[0]
     vals = d["Macro-F1"].to_numpy() * 100
     bars = ax.bar(x, vals, width=0.92, color=[FIG1_METHOD_COLORS[m] for m in d["Method"]], edgecolor="white", linewidth=0.35)
@@ -170,7 +160,6 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     _annotate_bars(ax, bars, "{:.1f}", dy=0.42, fs=5.3)
     _panel(ax, "(a)")
 
-    # (b) Weighted-F1 bars
     ax = axes[1]
     vals = d["Weighted-F1"].to_numpy() * 100
     bars = ax.bar(x, vals, width=0.92, color=[FIG1_METHOD_COLORS[m] for m in d["Method"]], edgecolor="white", linewidth=0.35)
@@ -182,11 +171,8 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     _annotate_bars(ax, bars, "{:.1f}", dy=0.42, fs=5.3)
     _panel(ax, "(b)")
 
-    # (c) Precision / Recall
     ax = axes[2]
     w = 0.46
-    # Keep method-color consistency inside fig_5_1:
-    # same method color in every panel; metric difference by alpha only.
     b1 = ax.bar(
         x - w / 2,
         d["Precision"].to_numpy() * 100,
@@ -221,7 +207,6 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     _annotate_bars(ax, b2, "{:.1f}", dy=0.28, fs=5.0, stagger=True, dy_alt=0.95)
     _panel(ax, "(c)")
 
-    # (d) HRR and FAR lines
     ax = axes[3]
     ax.plot(x, d["HRR"].to_numpy() * 100, color=RISK_COLORS["High"], marker="o", linewidth=1.5, label="HRR")
     ax.plot(x, d["FAR"].to_numpy() * 100, color=RISK_COLORS["Low"], marker="s", linewidth=1.3, label="FAR")
@@ -233,7 +218,6 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     ax.legend(loc="upper right")
     _panel(ax, "(d)")
 
-    # (e) McNemar p-values as -log10(p), clip floor
     ax = axes[4]
     pvals = d["p-value"].copy()
     pvals = pd.to_numeric(pvals, errors="coerce").fillna(1.0)
@@ -248,7 +232,6 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     _annotate_bars(ax, bars, "{:.1f}", dy=0.3, fs=5.1)
     _panel(ax, "(e)")
 
-    # row2 per-class + ablation
     p = perclass.copy()
     p["Method"] = pd.Categorical(p["Method"], MODEL_ORDER, ordered=True)
     p = p.sort_values("Method").reset_index(drop=True)
@@ -278,7 +261,6 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     _bar_col(axes[7], "High-R", "High-risk Recall")
     _panel(axes[7], "(h)")
 
-    # (i) High-F1
     ax = axes[8]
     bars = ax.bar(
         xx,
@@ -296,7 +278,6 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     _annotate_bars(ax, bars, "{:.1f}", dy=0.3, fs=5.1)
     _panel(ax, "(i)")
 
-    # (j) Ablation Macro-F1 + HRR
     ax = axes[9]
     a = ablation.copy()
     order = ["Full", "w/o Consistency", "w/o Sequence", "w/o Rule", "w/o Prototype", "w/o transformer"]
@@ -308,9 +289,11 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
     ax.set_xticks(xa)
     _style_xticks(ax, ["Full", "-Cons", "-Seq", "-Rule", "-Proto", "-TFM"], rotation=24.0, fs=6.4)
     ax.set_ylabel("Score (%)")
-    ax.set_ylim(64, 86)
+    ymin = min(a["Macro-F1"].min(), a["HRR"].min()) * 100
+    ymax = max(a["Macro-F1"].max(), a["HRR"].max()) * 100
+    margin = (ymax - ymin) * 0.15
+    ax.set_ylim(max(ymin - margin, 0), ymax + margin)
     ax.grid(axis="y")
-    # Avoid overlap with bar-top labels.
     ax.legend(
         loc="upper left",
         bbox_to_anchor=(0.0, 1.02),
@@ -325,14 +308,11 @@ def _draw_fig1(main: pd.DataFrame, perclass: pd.DataFrame, ablation: pd.DataFram
 
 
 def _draw_fig2(cross: pd.DataFrame, perturb: pd.DataFrame, out_dir: Path) -> None:
-    # 2x4 panel: threshold curves + cross-scenario slices
     fig = plt.figure(figsize=(12.2, 4.4))
     gs = fig.add_gridspec(2, 4, wspace=0.28, hspace=0.36)
     axes = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(4)]
-    #  7 baseline
     models = MODEL_ORDER.copy()
 
-    # row1: threshold all/rule_active/clean + scenario mean line
     subsets = ["all", "rule_active", "clean"]
     for i, subset in enumerate(subsets):
         ax = axes[i]
@@ -357,7 +337,6 @@ def _draw_fig2(cross: pd.DataFrame, perturb: pd.DataFrame, out_dir: Path) -> Non
         ax.grid(True)
         _panel(ax, f"({chr(ord('a') + i)})")
 
-    # row1 col4: scenario means by model
     ax = axes[3]
     rows = []
     for m in models:
@@ -381,7 +360,6 @@ def _draw_fig2(cross: pd.DataFrame, perturb: pd.DataFrame, out_dir: Path) -> Non
     ax.grid(True)
     _panel(ax, "(d)")
 
-    # row2: object/source/intent/rule bars by bucket
     for j, sk in enumerate(["object_type", "source_type", "intent_id", "rule_active"]):
         ax = axes[4 + j]
         dsk = cross[cross["ScenarioKey"] == sk]
@@ -405,7 +383,6 @@ def _draw_fig2(cross: pd.DataFrame, perturb: pd.DataFrame, out_dir: Path) -> Non
                 edgecolor="white",
                 linewidth=0.3,
             )
-        # fig_5_2: 
         ax.set_xticks(xb)
         _style_xticks(ax, [f"B{k}" for k in buckets], rotation=0, fs=6.6)
         ax.set_xlim(-0.5, len(buckets) - 0.5)
@@ -421,12 +398,10 @@ def _draw_fig2(cross: pd.DataFrame, perturb: pd.DataFrame, out_dir: Path) -> Non
 
 
 def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, cases: pd.DataFrame, detail_df: Optional[pd.DataFrame], out_dir: Path) -> None:
-    # 2x4 panel: mechanism + cases + confusion + score distribution
     fig = plt.figure(figsize=(12.0, 4.4))
     gs = fig.add_gridspec(2, 4, wspace=0.3, hspace=0.36)
     axes = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(4)]
 
-    # (a) mechanism grouped bars
     ax = axes[0]
     keep_v = ["Full", "w/o Consistency", "w/o Sequence", "w/o Rule"]
     keep_s = ["S_cons", "S_seq", "S_rule"]
@@ -447,7 +422,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
     ax.legend(loc="upper left", ncol=3, columnspacing=0.8, handlelength=1.0)
     _panel(ax, "(a)")
 
-    # (b) case component heatmap
     ax = axes[1]
     sd = cases[["R_cons", "R_seq", "R_rule"]].to_numpy()
     im = ax.imshow(sd, cmap="YlOrRd", aspect="auto", vmin=0)
@@ -461,7 +435,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
     ax.set_title("Case components", fontsize=7.6)
     _panel(ax, "(b)")
 
-    # (c) rule violation heatmap
     ax = axes[2]
     rd = cases[["V_type", "V_dst", "V_role", "V_time", "V_size"]].to_numpy()
     ax.imshow(rd, cmap="YlOrRd", aspect="auto", vmin=0)
@@ -475,7 +448,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
     ax.set_title("Rule evidence", fontsize=7.6)
     _panel(ax, "(c)")
 
-    # (d) confusion matrices, TCR only
     ax = axes[3]
     if detail_df is not None and not detail_df.empty:
         cm = confusion_matrix(detail_df["risk_label_true"], detail_df["risk_label_pred"], labels=[0, 1, 2]).astype(float)
@@ -493,7 +465,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
     ax.set_title("TCR confusion", fontsize=7.6)
     _panel(ax, "(d)")
 
-    # (e) per-class precision lines (all 7 methods)
     ax = axes[4]
     p = perclass.copy()
     p["Method"] = pd.Categorical(p["Method"], MODEL_ORDER, ordered=True)
@@ -510,7 +481,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
     ax.legend(loc="lower right")
     _panel(ax, "(e)")
 
-    # (f) per-class high metrics bars (all 7 methods)
     ax = axes[5]
     d = main.copy()
     d["Method"] = pd.Categorical(d["Method"], MODEL_ORDER, ordered=True)
@@ -529,7 +499,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
     _annotate_bars(ax, b2, "{:.1f}", dy=0.22, fs=4.9, stagger=True, dy_alt=0.9)
     _panel(ax, "(f)")
 
-    # (g) R_total distribution by true class
     ax = axes[6]
     if detail_df is not None and not detail_df.empty:
         for cls, c, lb in [(0, "#2E86DE", "Low"), (1, "#F39C12", "Mid"), (2, "#E74C3C", "High")]:
@@ -546,7 +515,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
     ax.legend(loc="upper right")
     _panel(ax, "(g)")
 
-    # (h) subset sample counts
     ax = axes[7]
     cnt = mech.groupby("Subset", observed=False)["Samples"].max().reindex(["S_cons", "S_seq", "S_rule"]).fillna(0)
     bars = ax.bar(np.arange(len(cnt)), cnt.to_numpy(), color=["#2E86DE", "#16A085", "#E74C3C"], edgecolor="white", linewidth=0.35)
@@ -561,7 +529,6 @@ def _draw_fig3(main: pd.DataFrame, perclass: pd.DataFrame, mech: pd.DataFrame, c
 
 
 def _draw_confusion_triplet(main: pd.DataFrame, out_dir: Path) -> None:
-    """Must-have #1: class-wise confusion support (TCR / Unified / Rule-Based)."""
     wanted = ["TCR-Net", "Unified-Multimodal", "Rule-Based"]
     fig, axes = plt.subplots(1, 3, figsize=(8.4, 2.6), constrained_layout=False)
     for ax, m in zip(axes, wanted):
@@ -593,7 +560,6 @@ def _draw_confusion_triplet(main: pd.DataFrame, out_dir: Path) -> None:
 
 
 def _draw_ablation_delta(ablation: pd.DataFrame, out_dir: Path) -> None:
-    """Must-have #2: aligned ΔMacro-F1 / ΔHRR / ΔFAR in one figure."""
     a = ablation.copy()
     full = a[a["Model"] == "Full"]
     if full.empty:
@@ -626,7 +592,6 @@ def _draw_ablation_delta(ablation: pd.DataFrame, out_dir: Path) -> None:
 
 
 def _draw_robustness_summary(cross: pd.DataFrame, perturb: pd.DataFrame, out_dir: Path) -> None:
-    """Must-have #3: mean + range error-bar summary."""
     if cross.empty or perturb.empty:
         return
     p_all = perturb[perturb["Subset"] == "all"].copy() if "Subset" in perturb.columns else perturb.copy()
@@ -660,11 +625,9 @@ def _draw_robustness_summary(cross: pd.DataFrame, perturb: pd.DataFrame, out_dir
 
 
 def _draw_case_evidence(cases: pd.DataFrame, out_dir: Path) -> None:
-    """Optional #4: case evidence (3 components + 5 rule triggers)."""
     if cases.empty:
         return
     fig, axes = plt.subplots(1, 2, figsize=(7.4, 2.6), constrained_layout=False)
-    # left: components
     ax = axes[0]
     c_cols = ["R_cons", "R_seq", "R_rule"]
     x = np.arange(len(cases))
@@ -682,7 +645,6 @@ def _draw_case_evidence(cases: pd.DataFrame, out_dir: Path) -> None:
     ax.legend(loc="upper left", ncol=3, fontsize=6.4)
     _panel(ax, "(a)")
 
-    # right: rule triggers
     ax = axes[1]
     r_cols = ["V_type", "V_dst", "V_role", "V_time", "V_size"]
     x = np.arange(len(cases))
@@ -699,7 +661,6 @@ def _draw_case_evidence(cases: pd.DataFrame, out_dir: Path) -> None:
 
 
 def _draw_significance(main: pd.DataFrame, out_dir: Path) -> None:
-    """Optional #5: McNemar p-value chart."""
     d = main.copy()
     d["Method"] = pd.Categorical(d["Method"], categories=MODEL_ORDER, ordered=True)
     d = d.sort_values("Method")
@@ -719,17 +680,6 @@ def _draw_significance(main: pd.DataFrame, out_dir: Path) -> None:
 
 
 def plot_all_figures(report_data_dir: str, output_dir: str, detail_csv: str | None = None) -> list[str]:
-    """
-    Generate 3 main multi-panel figures + supplemental evidence figures:
-      - fig_5_1 (2x5)
-      - fig_5_2 (2x4)
-      - fig_5_3 (2x4)
-      - fig_5_confusion_triplet
-      - fig_5_ablation_delta
-      - fig_5_robustness_summary
-      - fig_5_case_evidence
-      - fig_5_significance
-    """
     _apply_style()
     report_dir = Path(report_data_dir)
     out_dir = Path(output_dir)
@@ -767,5 +717,5 @@ def plot_all_figures(report_data_dir: str, output_dir: str, detail_csv: str | No
         "fig_5_case_evidence",
         "fig_5_significance",
     ]
-    print(f"  => {len(generated)}  panel  {out_dir.resolve()}")
+    print(f"  => {len(generated)} multi-panel figures saved to {out_dir.resolve()}")
     return generated

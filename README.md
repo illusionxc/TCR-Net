@@ -14,19 +14,12 @@ TCR-Net is a lightweight neural network for three-class risk assessment of power
 │   ├── data/synthetic.py       Synthetic data generation and loading
 │   ├── models/
 │   │   ├── tcrnet.py           TCR-Net model definition
-│   │   └── baselines.py        Additional baselines (IF, DeepSVDD, DAGMM, OC-NN)
+│   │   └── baselines.py        Additional baselines
 │   ├── training/trainer.py     Training loop, threshold calibration, evaluation
 │   ├── _export_report.py       Experiment data to CSV tables (internal)
 │   ├── _plot_results.py        Figure generation (internal)
 │   └── _latex_tools.py         LaTeX utilities (internal)
-├── scripts/                    # Standalone figure scripts
-│   ├── kdd_figure1_architecture.py
-│   ├── kdd_figure2_analysis.py
-│   ├── nature_main_figure.py
-│   ├── nature_supp_figs_v2.py
-│   └── fig_method_fig4.py
 ├── configs/                    # YAML experiment configs
-├── setup.py
 └── requirements.txt
 ```
 
@@ -71,7 +64,7 @@ python tcrnet_paper_pipeline.py all --config configs/tcr_net_paper.yaml --jobs 4
 | `export` | Export experiment results as CSV tables |
 | `plot` | Generate paper figures |
 | `latex` | LaTeX integration (fill tables, insert figures) |
-| `all` | Full pipeline: generate → train → export → plot |
+| `all` | Full pipeline: generate -> train -> export -> plot |
 
 ## Model Architecture
 

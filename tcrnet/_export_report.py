@@ -1,8 +1,8 @@
 """
- —— ， tcrnet/__init__.py 。
+Experiment report export -- internal module, not exposed via tcrnet/__init__.py.
 
-：（metrics + detail CSVs） CSV 。
- tcrnet_paper_pipeline.py ，。
+Generates paper-table CSV files from trained model outputs (metrics + detail CSVs).
+Called by tcrnet_paper_pipeline.py, not as a standalone entry point.
 """
 
 from __future__ import annotations
@@ -19,8 +19,6 @@ from sklearn.metrics import precision_recall_fscore_support
 from tcrnet.config import load_config
 
 
-
-
 MODEL_ORDER = [
     "Rule-Based", "Content-Only", "Content+Semantic",
     "Sequence+Semantic", "Unified-Multimodal", "w/o Rule", "TCR-Net",
@@ -30,8 +28,6 @@ ABLATION_ORDER = [
     "Full", "w/o Consistency", "w/o Sequence",
     "w/o Rule", "w/o Prototype", "w/o transformer",
 ]
-
-
 
 
 def _ensure_dir(path: Path) -> None:
@@ -47,7 +43,6 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _find_detail_csv(output_dir: str | Path) -> Path:
-    """..."""
     p = Path(output_dir)
     for cand in [p / "details" / "test_details.csv", p / "details_tcr" / "test_details.csv"]:
         if cand.exists():
@@ -56,7 +51,6 @@ def _find_detail_csv(output_dir: str | Path) -> Path:
 
 
 def _metrics_from_detail(df: pd.DataFrame) -> dict[str, float]:
-    """..."""
     y_true = df["risk_label_true"].to_numpy()
     y_pred = df["risk_label_pred"].to_numpy()
     p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, labels=[0, 1, 2], zero_division=0)
@@ -74,7 +68,6 @@ def _metrics_from_detail(df: pd.DataFrame) -> dict[str, float]:
 
 
 def _mcnemar_p_value(reference: pd.DataFrame, candidate: pd.DataFrame) -> float | None:
-    """..."""
     if len(reference) != len(candidate):
         return None
     ref_ok = reference["risk_label_pred"].to_numpy() == reference["risk_label_true"].to_numpy()
@@ -87,10 +80,7 @@ def _mcnemar_p_value(reference: pd.DataFrame, candidate: pd.DataFrame) -> float 
     return float(math.erfc(math.sqrt(chi2 / 2.0)))
 
 
-
-
 def export_table_5_1(data_dir: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     metadata = _load_json(data_dir / "metadata.json")
     all_rows = []
     for split in ["train", "val", "test"]:
@@ -100,15 +90,14 @@ def export_table_5_1(data_dir: Path, out_dir: Path) -> pd.DataFrame:
         {"Data Dimension": "Total samples", "Statistic": len(all_rows), "Description": "Train + validation + test samples."},
         {"Data Dimension": "Task-type count", "Statistic": int(metadata["num_intents"]), "Description": "Number of intent / task classes."},
         {"Data Dimension": "Equipment-object classes", "Statistic": int(metadata["num_objects"]), "Description": "Number of equipment object categories."},
-        {"Data Dimension": "Low/Medium/High samples", "Statistic": f"{int((risk==0).sum())}/{int((risk==1).sum())}/{int((risk==2).sum())}", "Description": "Risk-label distribution over the exported station-style dataset."},
-        {"Data Dimension": "Average history length", "Statistic": int(metadata["history_length"]), "Description": "Fixed history window length K in the current dataset."},
+        {"Data Dimension": "Low/Medium/High samples", "Statistic": f"{int((risk==0).sum())}/{int((risk==1).sum())}/{int((risk==2).sum())}", "Description": "Risk-label distribution over the exported dataset."},
+        {"Data Dimension": "Average history length", "Statistic": int(metadata["history_length"]), "Description": "Fixed history window length K."},
     ])
     df.to_csv(out_dir / "tab_5_1_data_source_label_distribution.csv", index=False)
     return df
 
 
 def export_table_5_2(data_dir: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     rows = []
     for split in ["train", "val", "test", "ood"]:
         sp = data_dir / f"{split}.jsonl"
@@ -117,14 +106,13 @@ def export_table_5_2(data_dir: Path, out_dir: Path) -> pd.DataFrame:
             continue
         split_rows = _load_jsonl(sp)
         risk = pd.Series([int(r["risk_label"]) for r in split_rows])
-        rows.append({"Split": split, "Total": len(split_rows), "Low": int((risk == 0).sum()), "Medium": int((risk == 1).sum()), "High": int((risk == 2).sum()), "Description": "Current station-jsonl split." if split != "ood" else "Domain-shift split for OOD robustness.", "Available": True})
+        rows.append({"Split": split, "Total": len(split_rows), "Low": int((risk == 0).sum()), "Medium": int((risk == 1).sum()), "High": int((risk == 2).sum()), "Description": "Station-jsonl split." if split != "ood" else "Domain-shift split for OOD robustness.", "Available": True})
     df = pd.DataFrame(rows)
     df.to_csv(out_dir / "tab_5_2_split_statistics.csv", index=False)
     return df
 
 
 def export_table_5_3(out_dir: Path) -> pd.DataFrame:
-    """..."""
     df = pd.DataFrame([
         {"Category": "File-structure features", "Main Content": "initial_state, response_mask, amplitude bounds, steady-state bounds, delta_t_window, settle_steps", "Target Module": "Shared encoder / Rule branch"},
         {"Category": "Business-semantic features", "Main Content": "intent_id, object_type, context, control_params-derived semantics", "Target Module": "Shared encoder / Consistency branch"},
@@ -137,7 +125,6 @@ def export_table_5_3(out_dir: Path) -> pd.DataFrame:
 
 
 def export_table_5_4(config: dict[str, Any], out_dir: Path) -> pd.DataFrame:
-    """..."""
     pm = config["paper_model"]
     pt = config["paper_train"]
     pd_cfg = config["data"]
@@ -157,7 +144,6 @@ def export_table_5_4(config: dict[str, Any], out_dir: Path) -> pd.DataFrame:
 
 
 def export_table_5_5(out_dir: Path) -> pd.DataFrame:
-    """..."""
     df = pd.DataFrame([
         {"Method": "Rule-Based", "Struct": False, "Sem": False, "Context": True, "History": False, "Rule_feat": True, "Three_comp": False},
         {"Method": "Content-Only", "Struct": True, "Sem": False, "Context": False, "History": False, "Rule_feat": False, "Three_comp": False},
@@ -171,7 +157,6 @@ def export_table_5_5(out_dir: Path) -> pd.DataFrame:
 
 
 def export_table_5_6(summary_path: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     summary = _load_json(summary_path)
     rows = []
     ref_payload = summary["experiments"].get("TCR-Net")
@@ -200,7 +185,6 @@ def export_table_5_6(summary_path: Path, out_dir: Path) -> pd.DataFrame:
 
 
 def export_table_5_7(summary_path: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     summary = _load_json(summary_path)
     rows = []
     for model in MODEL_ORDER:
@@ -216,7 +200,6 @@ def export_table_5_7(summary_path: Path, out_dir: Path) -> pd.DataFrame:
 
 
 def export_table_5_8(summary_path: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     summary = _load_json(summary_path)
     rows = []
     full_payload = summary["experiments"].get("Full")
@@ -239,11 +222,7 @@ def export_table_5_8(summary_path: Path, out_dir: Path) -> pd.DataFrame:
     return df
 
 
-
-
 def _external_subset_masks(detail: pd.DataFrame):
-    """
-"""
     rule_mask = (detail["V_type"] + detail["V_dst"] + detail["V_role"] + detail["V_time"] > 0) | (detail["V_size"] > 0)
     if "anomaly_type" not in detail.columns:
         return None, None, rule_mask
@@ -261,7 +240,6 @@ def _f1_on_subset(df: pd.DataFrame) -> float:
 
 
 def export_fig_5_9_data(summary_path: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     summary = _load_json(summary_path)
     experiments = summary.get("experiments", {})
     if not experiments:
@@ -290,7 +268,6 @@ def export_fig_5_9_data(summary_path: Path, out_dir: Path) -> pd.DataFrame:
 
 
 def export_fig_5_10_data(summary_path: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     summary = _load_json(summary_path)
     rows = []
     for model in MODEL_ORDER:
@@ -319,7 +296,6 @@ def _predict_with_eta(scores: np.ndarray, eta_1: float, eta_2: float) -> np.ndar
 
 
 def export_fig_5_11_data(summary_path: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     summary = _load_json(summary_path)
     rows = []
     sweep = np.linspace(0.68, 0.96, 8)
@@ -346,7 +322,6 @@ def export_fig_5_11_data(summary_path: Path, out_dir: Path) -> pd.DataFrame:
 
 
 def export_fig_5_12_data(detail_csv: Path, out_dir: Path) -> pd.DataFrame:
-    """..."""
     if not detail_csv or not detail_csv.exists():
         return pd.DataFrame()
     detail = pd.read_csv(detail_csv)
@@ -363,7 +338,6 @@ def export_fig_5_12_data(detail_csv: Path, out_dir: Path) -> pd.DataFrame:
 
 
 def export_manifest(out_dir: Path) -> pd.DataFrame:
-    """..."""
     df = pd.DataFrame([
         {"Item": "tab_5_1", "Status": "available", "Comment": "From mock_station_v1 dataset."},
         {"Item": "tab_5_2", "Status": "available", "Comment": "Train/val/test/ood split statistics."},
@@ -382,21 +356,16 @@ def export_manifest(out_dir: Path) -> pd.DataFrame:
     return df
 
 
-
-
 def run_all_exports(
     config_path: str,
     output_root: str,
     detail_csv: str,
     mock_data_dir: str | None = None,
 ) -> dict[str, str]:
-    """
-"""
     config = load_config(config_path)
     output_root_path = Path(output_root)
     out_dir = output_root_path / "report_data"
     _ensure_dir(out_dir)
-
 
     if mock_data_dir:
         data_dir = Path(mock_data_dir)
@@ -423,7 +392,7 @@ def run_all_exports(
     if detail_csv:
         export_fig_5_12_data(Path(detail_csv), out_dir)
     else:
-        print("[export]  fig_5_12（ detail_csv）")
+        print("[export] Skipping fig_5_12 (no detail_csv provided)")
     export_manifest(out_dir)
 
     return {"report_data_dir": str(out_dir.resolve())}

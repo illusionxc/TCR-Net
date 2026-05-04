@@ -3,20 +3,15 @@ TCR-Net: Pre-Transmission Risk Grading for Power Inspection Files.
 
 Package structure:
     tcrnet/
-    ├── config.py         
+    ├── config.py         Configuration loading
     ├── data/
-    │   └── synthetic.py  
+    │   └── synthetic.py  Synthetic data generation
     ├── models/
-    │   ├── tcrnet.py     TCR-Net 
-    │   └── baselines.py  
+    │   ├── tcrnet.py     TCR-Net model
+    │   └── baselines.py  Baseline methods
     ├── training/
-    │   └── trainer.py     /  / 
-    └── experiments.py    （baseline / ablation ）
-
- cctnet 
-----------------
-cctnet/ ，tcrnet/ 。
-。cctnet/  checkpoint。
+    │   └── trainer.py    Training / evaluation / threshold calibration
+    └── experiments.py    Experiment variants (baseline / ablation)
 """
 
 from .config import load_config

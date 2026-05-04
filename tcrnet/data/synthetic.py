@@ -1,19 +1,23 @@
 """
- —— 。
+Synthetic data generator for power inspection file transmission events.
 
+Data semantics:
+    - Each sample = one file transmission event.
+    - File attributes: size, compression ratio, entropy, header consistency,
+      metadata integrity, script/macro flag.
+    - Task types: inspection_photo, defect_form, maintenance_report,
+      handover_doc, routine_record, equipment_log.
+    - Anomaly types: extension_spoofing, compression_anomaly, source_anomaly,
+      destination_anomaly, task_stage_mismatch (R_cons), role_mismatch (R_cons),
+      sequence_deviation (R_seq).
 
---------
--  = （、、）
-- ：、、、、、/
-- ： /  /  /  /  / 
-- ： /  /  /  /  /  / 
-
-
---------
-1. ""
-2.  ~2% （FAR > 0，）
-3. （R_cons ）：
-4. （R_seq ）：
+Key design:
+    1. Features aligned with the "file-structure / semantic / context" description.
+    2. Normal samples have ~2% boundary rule triggers (FAR > 0, more realistic).
+    3. Context-mismatch anomalies (R_cons test cases): files look normal but
+       task context is wrong.
+    4. Sequence-deviation anomalies (R_seq test cases): recent transmission
+       history shows irregular patterns.
 """
 
 from __future__ import annotations
@@ -29,41 +33,38 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 
-# ═══════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════
-
+# Domain constants
 TASK_NAMES = [
-    "inspection_photo",      # 0 
-    "defect_form",           # 1 
-    "maintenance_report",    # 2 
-    "handover_doc",          # 3 
-    "routine_record",        # 4 
-    "equipment_log",         # 5 
+    "inspection_photo",
+    "defect_form",
+    "maintenance_report",
+    "handover_doc",
+    "routine_record",
+    "equipment_log",
 ]
 
 EQUIPMENT_NAMES = [
-    "transformer",           # 0 
-    "breaker",               # 1 
-    "line",                  # 2 
-    "protection_device",     # 3 
+    "transformer",
+    "breaker",
+    "line",
+    "protection_device",
 ]
 
 TERMINAL_NAMES = [
-    "mobile_device",         # 0 
-    "laptop",                # 1 
-    "workstation",           # 2 
+    "mobile_device",
+    "laptop",
+    "workstation",
 ]
 
 ANOMALY_NAMES = [
-    "normal",                       # 0 
-    "extension_spoofing",           # 1   
-    "compression_anomaly",          # 2     
-    "source_anomaly",               # 3     
-    "destination_anomaly",          # 4   
-    "task_stage_mismatch",          # 5   (R_cons)
-    "role_mismatch",                # 6     (R_cons)
-    "sequence_deviation",           # 7       (R_seq)
+    "normal",
+    "extension_spoofing",
+    "compression_anomaly",
+    "source_anomaly",
+    "destination_anomaly",
+    "task_stage_mismatch",
+    "role_mismatch",
+    "sequence_deviation",
 ]
 
 
@@ -88,7 +89,6 @@ TASK_FILE_PROFILES = {
         "max_size": 1.5, "min_size": 0.005},
 }
 
-# 0~9
 EXTENSION_NAMES = [".jpg", ".png", ".pdf", ".docx", ".xlsx", ".zip",
                    ".xml", ".json", ".csv", ".mp4"]
 
@@ -97,13 +97,8 @@ DESTINATION_TYPES = ["team_share", "archive", "review_station", "external"]
 OPERATOR_ROLES   = ["field_worker", "supervisor", "engineer", "admin"]
 
 
-# ═══════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════
-
 @dataclass
 class SyntheticConfig:
-    """..."""
     source: str
     data_dir: str | None
     train_samples: int
@@ -133,13 +128,9 @@ class SyntheticConfig:
         return cls(**merged)
 
 
-# ═══════════════════════════════════════════════════════════════════
 # PyTorch Dataset
-# ═══════════════════════════════════════════════════════════════════
 
 class FileEventDataset(Dataset):
-    """..."""
-
     def __init__(self, samples: List[Dict[str, np.ndarray | int | float]]) -> None:
         self.samples = samples
 
@@ -158,24 +149,15 @@ class FileEventDataset(Dataset):
             elif isinstance(value, (float, np.floating)):
                 result[key] = torch.tensor(float(value), dtype=torch.float32)
             else:
-                raise TypeError(f": key={key}, type={type(value)}")
+                raise TypeError(f"Unexpected type: key={key}, type={type(value)}")
         return result
 
-
-# ═══════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════
 
 def _first_order_response(
     start: np.ndarray, target: np.ndarray, steps: int,
     delay_steps: int, tau: float,
 ) -> np.ndarray:
-    """
-    ： start  target 。
-
-     delay_steps  start， target。
-    tau （）。
-    """
+    """First-order response trajectory from start to target."""
     traj = np.zeros((steps, start.shape[0]), dtype=np.float32)
     for t in range(steps):
         if t <= delay_steps:
@@ -191,24 +173,13 @@ def _build_history_sequence(
     task_id: int, equip_id: int, term_id: int,
     history_len: int, anomaly_type: int,
 ) -> np.ndarray:
-    """
-     [history_len, 8]。
+    """Build history sequence [history_len, 8].
 
-     8 ：[task_id_norm, equip_id_norm, term_id_norm,
-                size_dev, entropy_dev, time_sin, time_cos, anomaly_flag]
-    ，。
+    Features: [task_id_norm, equip_id_norm, term_id_norm,
+               size_dev, entropy_dev, time_sin, time_cos, anomaly_flag]
 
-    【】
-     type 7 (sequence_deviation)  history_seq 。
-    ，history_seq （）。
-     R_seq  type 7 （ 0.20）。
-
-    【】，：
-    - （）
-    - 
-    - 
-    "+/"。
-    ，R_seq 。
+    For type 7 (sequence_deviation), the second half of the history
+    shows different task types and larger deviations.
     """
     seq = np.zeros((history_len, 8), dtype=np.float32)
     base_hour = rng.integers(0, 24)
@@ -234,7 +205,6 @@ def _build_history_sequence(
 
 
 def _task_defaults(task_id: int) -> Tuple[int, int]:
-    """..."""
     equip = [0, 2, 2, 0, 3, 1][task_id]
     term  = [0, 0, 0, 1, 1, 2][task_id]
     return equip, term
@@ -244,27 +214,22 @@ def _task_file_profile(task_id: int) -> Dict:
     return dict(TASK_FILE_PROFILES.get(task_id, TASK_FILE_PROFILES[0]))
 
 
-# ═══════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════
-
 def _generate_file_properties(
     rng: np.random.Generator, task_id: int, domain_shift: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
     """
-    。
+    Generate file structure and context features.
 
     Returns
     -------
     initial_state : [6]     [file_size, comp_ratio, entropy, header, metadata, exec_flag]
     context       : [6]     [workload, volume, storage, network, pressure, size_limit]
     file_params   : [2]     [quality_dev, severity]
-    ext_id        : int     
-    hour          : int     （0-23）
+    ext_id        : int     Extension ID
+    hour          : int     Hour of day (0-23)
     """
     profile = _task_file_profile(task_id)
     hour = int(rng.integers(0, 24))
-
 
     workload = rng.uniform(0.1, 0.9)
     file_volume = rng.uniform(0.0, 1.0)
@@ -273,14 +238,7 @@ def _generate_file_properties(
     time_pressure = rng.uniform(0.0, 1.0)
     size_limit = rng.uniform(0.6, 1.0)
 
-    if domain_shift:  # OOD: 
-        # OOD 
-        # -  context workload, file_volume, network, pressure
-        # - 
-        # - 
-        #  OOD 
-
-        #  OOD 
+    if domain_shift:
         workload = np.clip(workload * rng.uniform(1.3, 2.0), 0.0, 1.0)
         file_volume = np.clip(file_volume * rng.uniform(0.3, 0.7), 0.0, 1.0)
         network_quality = np.clip(network_quality + rng.normal(-0.1, 0.05), 0.6, 1.0)
@@ -290,26 +248,20 @@ def _generate_file_properties(
         workload, file_volume, storage, network_quality, time_pressure, size_limit,
     ], dtype=np.float32)
 
-
     raw_size = max(rng.normal(profile["size_mean"], profile["size_std"]), profile["min_size"])
     raw_size = min(raw_size, profile["max_size"])
     file_size_norm = raw_size / max(size_limit * 10.0, 1.0)
 
-    #  0=, 1= 
     comp_ratio = rng.uniform(0.3, 0.7) if task_id in {2, 3} else \
                  rng.uniform(0.8, 1.0) if task_id in {0, 5} else \
                  rng.uniform(0.5, 0.9)
 
-
     entropy = np.clip(rng.normal(profile["entropy_mean"], profile["entropy_std"]), 0.5, 7.9)
 
-    #   0 =  
     header_consistency = 0.0
 
-    #   ~10-15% 
     metadata_gap = rng.beta(2, 8) if rng.random() < 0.15 else rng.beta(1, 30)
 
-    #  / 
     has_macros = 1.0 if (profile["has_macros"] and rng.random() < 0.1) else 0.0
 
     ext_id = int(rng.choice(profile["ext_allowed"]))
@@ -323,20 +275,11 @@ def _generate_file_properties(
     return initial_state, context, file_params, ext_id, hour
 
 
-# ═══════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════
-
 def _generate_event(
     rng: np.random.Generator, cfg: SyntheticConfig,
     allow_anomaly: bool, domain_shift: bool = False,
 ) -> Dict[str, np.ndarray | int | float]:
-    """
-    。
-
-    ：、、、（）、
-    、。
-    """
+    """Generate a single transmission event sample."""
     H = cfg.sequence_length
     S = cfg.state_dim
     delta_t_window = float(max(H - 1, 1))
@@ -360,7 +303,6 @@ def _generate_event(
     file_size_limit = float(context[5])
     quality_dev     = float(file_params[0])
     severity        = float(file_params[1])
-
 
     if task_id == 0:
         delta = abs(quality_dev) * file_size_limit * 0.3
@@ -386,7 +328,6 @@ def _generate_event(
         target[0] = np.clip(initial_state[0] + quality_dev * 0.05, 0.0, file_size_limit)
         response_mask[[0]] = 1.0
 
-
     delta_state = target - initial_state
     amp_abs = np.maximum(np.abs(delta_state), 0.02)
     amp_low, amp_high = 0.8 * amp_abs, 1.2 * amp_abs + 1e-3
@@ -394,13 +335,11 @@ def _generate_event(
     steady_high = np.full(S, 0.03, dtype=np.float32)
     steady_high[4], steady_high[5] = 0.15, 0.10
 
-
     delay_steps = int(rng.integers(1, max(H // 4, 2)))
     tau = float(rng.uniform(1.5, 4.0))
     expected_traj = _first_order_response(initial_state, target, H, delay_steps, tau)
     expected_traj[:, 4] = initial_state[4] if initial_state[4] > 0.5 else target[4]
     expected_traj[:, 5] = initial_state[5]
-
 
     anomaly_type, anomaly_label = 0, 0
     actual_traj = expected_traj.copy()
@@ -422,13 +361,12 @@ def _generate_event(
             observed_term_id = int((term_id + rng.integers(1, max(cfg.num_sources, 2))) % max(cfg.num_sources, 1))
         elif anomaly_type == 4:
             observed_equip_id = int((equip_id + rng.integers(1, max(cfg.num_objects, 2))) % max(cfg.num_objects, 1))
-        elif anomaly_type == 5:     #   R_cons
+        elif anomaly_type == 5:
             file_params = np.array([quality_dev + 0.5, severity + 0.3], dtype=np.float32)
-        elif anomaly_type == 6:     #   R_cons
+        elif anomaly_type == 6:
             observed_term_id = int((term_id + 2) % max(cfg.num_sources, 1))
-        elif anomaly_type == 7:     #   R_seq
+        elif anomaly_type == 7:
             actual_traj[delay_steps:, 0] += rng.normal(0.0, 0.05, size=(H - delay_steps,))
-
 
     noise = rng.normal(0.0, 0.005, size=(H, S)).astype(np.float32)
     noise[:, 3] = 0.0
@@ -438,7 +376,6 @@ def _generate_event(
     actual_traj[:, 3] = np.round(np.clip(actual_traj[:, 3], 0.0, 1.0))
     actual_traj[:, 5] = np.round(np.clip(actual_traj[:, 5], 0.0, 1.0))
 
-    #   explicit rule features 
     rule_type_id = int(task_id)
     rule_dst_id  = int(equip_id)
     rule_role_id = int(term_id)
@@ -447,7 +384,6 @@ def _generate_event(
                          + abs(float(file_params[1])) * 90.0
                          + max(float(initial_state[0]), 0.0) * 40.0)
     rule_depth   = float(mode0)
-
 
     if anomaly_label == 1 and anomaly_type in {1, 4}:
         rule_size, rule_depth = rule_size * 2.5, rule_depth + 3.0
@@ -459,23 +395,7 @@ def _generate_event(
         rule_role_id = int((term_id + 2) % max(cfg.num_sources, 1))
         rule_size *= 1.5
 
-    #  FAR  
-    #
-
-    #  FAR 
-    #  FAR=0
-    #
-    #  8%3%+3%+2%
-    #  risk_label  0
-    # ""
-    #
-
-    # ""
-    #  8%FAR 
-    #
-
-    # ""
-
+    # Inject small rule noise on normal samples for realism (FAR > 0)
     if anomaly_label == 0:
         if rng.random() < 0.03:
             rule_hour = (rule_hour + rng.choice([-2.0, 2.0])) % 24.0
@@ -483,7 +403,6 @@ def _generate_event(
             rule_size *= rng.uniform(1.3, 1.6)
         if rng.random() < 0.02:
             rule_dst_id = int((equip_id + 1) % max(cfg.num_objects, 1))
-
 
     if anomaly_label == 0:
         risk_label = 0
@@ -502,12 +421,10 @@ def _generate_event(
     else:
         risk_label = 1
 
-
     history_seq = _build_history_sequence(rng, task_id, equip_id, term_id,
                                           cfg.history_length, anomaly_type)
 
     return {
-
         "intent_id": task_id, "control_type": task_id,
         "object_type": observed_equip_id, "source_type": observed_term_id,
         "control_params": file_params.astype(np.float32),
@@ -517,7 +434,6 @@ def _generate_event(
         "actual_traj": actual_traj.astype(np.float32),
         "expected_traj": expected_traj.astype(np.float32),
         "history_seq": history_seq.astype(np.float32),
-
         "response_mask": response_mask.astype(np.float32),
         "allowed_dir": np.sign(delta_state).astype(np.float32),
         "amp_low": amp_low.astype(np.float32),
@@ -526,15 +442,12 @@ def _generate_event(
         "steady_high": steady_high.astype(np.float32),
         "delta_t_window": np.float32(delta_t_window),
         "settle_steps": np.float32(settle_steps),
-
         "anomaly_label": anomaly_label,
         "anomaly_type": anomaly_type,
         "risk_label": risk_label,
-
         "rule_type_id": int(rule_type_id), "rule_dst_id": int(rule_dst_id),
         "rule_role_id": int(rule_role_id), "rule_hour": float(rule_hour),
         "rule_size": float(rule_size), "rule_depth": float(rule_depth),
-        #   x_proj  
         "p_bounds": np.array([0.0, file_size_limit], dtype=np.float32),
         "q_bounds": np.array([0.0, 1.0], dtype=np.float32),
         "u_bounds": np.array([0.0, 1.0], dtype=np.float32),
@@ -543,10 +456,6 @@ def _generate_event(
     }
 
 
-# ═══════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════
-
 def _make_samples(count: int, cfg: SyntheticConfig, seed: int,
                    allow_anomaly: bool, domain_shift: bool = False) -> List[Dict]:
     rng = np.random.default_rng(seed)
@@ -554,7 +463,6 @@ def _make_samples(count: int, cfg: SyntheticConfig, seed: int,
 
 
 def _to_serializable(sample: Dict) -> Dict:
-    """..."""
     result = {}
     for key, value in sample.items():
         if isinstance(value, np.ndarray):
@@ -569,7 +477,6 @@ def _to_serializable(sample: Dict) -> Dict:
 
 
 def _from_serializable(sample: Dict) -> Dict[str, np.ndarray | int | float]:
-    """..."""
     array_keys = {
         "control_params", "time_features", "context", "initial_state",
         "actual_traj", "expected_traj", "history_seq",
@@ -596,7 +503,6 @@ def _from_serializable(sample: Dict) -> Dict[str, np.ndarray | int | float]:
 
 
 def _normalize_loaded_sample(sample: Dict, meta: Dict[str, int]) -> Dict:
-    """..."""
     normalized = dict(sample)
     if "intent_id" not in normalized:
         normalized["intent_id"] = int(normalized.get("control_type", 0))
@@ -631,7 +537,6 @@ def _normalize_loaded_sample(sample: Dict, meta: Dict[str, int]) -> Dict:
             ], dtype=np.float32)
         normalized["history_seq"] = arr
 
-
     for key in ["response_mask", "allowed_dir", "amp_low", "amp_high",
                  "steady_low", "steady_high"]:
         if key not in normalized:
@@ -655,17 +560,10 @@ def _normalize_loaded_sample(sample: Dict, meta: Dict[str, int]) -> Dict:
     return _from_serializable(_to_serializable(normalized))
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  API
-# ═══════════════════════════════════════════════════════════════════
+# Public API
 
 def export_mock_dataset(config: Dict, seed: int, output_dir: str | Path) -> Dict[str, str]:
-    """
-    （JSONL ）。
-
-     train / val / test / ood ， JSON 。
-     metadata.json 。
-    """
+    """Generate synthetic dataset (JSONL format) with train/val/test/ood splits."""
     cfg = SyntheticConfig.from_dict(config["data"])
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -725,7 +623,6 @@ def _load_jsonl(path: str | Path) -> List[Dict]:
 def load_dataset(
     data_dir: str | Path,
 ) -> Tuple[List[Dict], List[Dict], List[Dict], Dict[str, int]]:
-    """..."""
     data_dir = Path(data_dir)
     train = _load_jsonl(data_dir / "train.jsonl")
     val   = _load_jsonl(data_dir / "val.jsonl")
@@ -747,11 +644,8 @@ def load_dataset(
             "num_modes": 4,
         }
 
-    # []  "source"
-    # metadata.json  "source","seed","train_file" 
     meta = {k: int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else v
             for k, v in meta.items()}
-    #  int
     for numeric_key in ["num_intents", "num_objects", "num_sources", "state_dim",
                         "context_dim", "history_feature_dim", "sequence_length",
                         "num_modes", "history_length"]:
@@ -770,12 +664,11 @@ def load_dataset(
 def build_dataloaders(
     config: Dict, seed: int,
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Dict[str, int]]:
-    """..."""
     cfg = SyntheticConfig.from_dict(config["data"])
 
     if cfg.source in {"station_jsonl", "mock_station_jsonl"}:
         if cfg.data_dir is None:
-            raise ValueError("data.data_dir ")
+            raise ValueError("data.data_dir must be set for station_jsonl source")
         train_s, val_s, test_s, meta = load_dataset(cfg.data_dir)
     else:
         train_s = _make_samples(cfg.train_samples, cfg, seed + 11,

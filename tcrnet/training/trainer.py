@@ -1,26 +1,15 @@
 """
-TCR-Net ：、、。
+TCR-Net trainer: training loop, threshold calibration, evaluation pipeline.
 
+Flow:
+    1. Each epoch: train one step -> update reference banks
+    2. Validation set: grid search for eta1/eta2 thresholds
+    3. Save best checkpoint (by Macro-F1)
+    4. Final evaluation on test split with CSV details.
 
-----
-1.  epoch： → （prototype / ）
-2. （η₁, η₂ ）
-3.  checkpoint（ Macro-F1）
-4. ：test split  + CSV 
-
-
---------
-η₁, η₂ ， Macro-F1 + HRR。
-，。
-
-
---------
-2026-05:
-  -  forward ： opt.step()  model(batch)，
-     forward  reference bank。 ~2x 。
-  -  reference bank  loss.backward() ，
-    ， step  forward。
-  - 
+Threshold calibration:
+    eta1, eta2 are determined via quantile grid search on the validation set.
+    Search space is strictly limited to validation; test set never participates.
 """
 
 from __future__ import annotations
@@ -42,10 +31,9 @@ from ..data.synthetic import build_dataloaders
 from ..models.tcrnet import TCRNet
 
 
-
+# -- Environment setup -----------------------------------------------
 
 def seed_everything(seed: int) -> None:
-    """..."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -53,25 +41,21 @@ def seed_everything(seed: int) -> None:
 
 
 def resolve_device(config: Dict) -> torch.device:
-    """..."""
     name = config.get("device", "auto")
     return torch.device("cuda" if name == "auto" and torch.cuda.is_available() else "cpu")
 
 
 def move_batch(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
-    """..."""
     return {k: v.to(device) for k, v in batch.items()}
 
 
-
+# -- Label generation ------------------------------------------------
 
 def get_supervised_labels(
     batch: Dict[str, torch.Tensor],
     violations: torch.Tensor,
     size_violation_gate: float,
 ) -> torch.Tensor:
-    """
-"""
     if "risk_label" in batch:
         return batch["risk_label"].long().clamp(min=0, max=2)
     hard_rule = (violations[:, :4].sum(dim=1) > 0.0) | (violations[:, 4] > size_violation_gate)
@@ -82,19 +66,22 @@ def get_supervised_labels(
     return y
 
 
-
+# -- Loss function ---------------------------------------------------
 
 def _compute_loss(
     model: TCRNet, outputs: Dict[str, torch.Tensor],
     intent_id: torch.Tensor, y3: torch.Tensor, config: Dict,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """
-"""
     lc = config["paper_loss"]
     l_pred  = torch.abs(outputs["r_obs"] - outputs["r_hat"]).mean()
-    l_proto = outputs["d_proto"].mean()
+
+    # Only constrain normal samples with L_seq,
+    # allowing abnormal samples to drift away from class centers
+    # so that R_seq can distinguish them at inference.
+    normal_mask = (y3 == 0)
     mu = model.seq_mu_bank[intent_id.long()]
-    l_seq = ((outputs["h_seq"] - mu) ** 2).mean()
+    l_proto = torch.tensor(0.0, device=y3.device)
+    l_seq = ((outputs["h_seq"] - mu) ** 2)[normal_mask].mean() if normal_mask.any() else torch.tensor(0.0, device=y3.device)
 
     weights = torch.as_tensor(lc.get("class_weights", [1.0, 1.2, 1.5]),
                                device=y3.device, dtype=torch.float32)
@@ -102,7 +89,6 @@ def _compute_loss(
     l_reg = sum((p ** 2).sum() for p in model.parameters())
 
     total = (float(lc["lambda_pred"])  * l_pred
-           + float(lc["lambda_proto"]) * l_proto
            + float(lc["lambda_seq"])   * l_seq
            + float(lc["lambda_cls"])   * l_cls
            + float(lc["lambda_reg"])   * l_reg)
@@ -111,31 +97,24 @@ def _compute_loss(
                    "l_cls": float(l_cls.item())}
 
 
-
+# -- Calibration and decision ----------------------------------------
 
 def _fit_norm_stats(values: Dict[str, np.ndarray], eps: float) -> Dict[str, Dict[str, float]]:
-    """
-"""
     return {k: {"min": float(np.min(v)), "max": float(np.max(v)), "eps": eps}
             for k, v in values.items()}
 
 
 def _normalize(arr: np.ndarray, stat: Dict[str, float]) -> np.ndarray:
-    """..."""
     return (arr - stat["min"]) / max(stat["max"] - stat["min"], stat["eps"])
 
 
 def _logit_risk_score(logits: np.ndarray) -> np.ndarray:
-    """
-"""
     logits = logits - logits.max(axis=1, keepdims=True)
     probs = np.exp(logits) / np.clip(np.exp(logits).sum(axis=1, keepdims=True), 1e-12, None)
     return probs @ np.asarray([0.0, 0.5, 1.0], dtype=np.float32)
 
 
 def _predict_from_score(scores: np.ndarray, eta1: float, eta2: float) -> np.ndarray:
-    """
-"""
     y = np.zeros(scores.shape[0], dtype=np.int64)
     y[scores >= eta1] = 1
     y[scores >= eta2] = 2
@@ -147,8 +126,6 @@ def _select_decision_calibration(
     stats: Dict[str, Dict[str, float]],
     config: Dict,
 ) -> Dict:
-    """
-"""
     tc = config.get("paper_score", {}).get("thresholds", {})
     q1 = tc.get("eta1_quantiles", [0.55, 0.60, 0.65, 0.70, 0.75])
     q2 = tc.get("eta2_quantiles", [0.70, 0.75, 0.80, 0.85, 0.90, 0.95])
@@ -156,7 +133,7 @@ def _select_decision_calibration(
         [0.34, 0.33, 0.33], [0.50, 0.25, 0.25], [0.25, 0.50, 0.25],
         [0.25, 0.25, 0.50], [0.40, 0.30, 0.30], [0.30, 0.40, 0.30], [0.30, 0.30, 0.40],
     ])
-    mgrid = tc.get("hybrid_mix_grid", [0.0, 0.25, 0.50, 0.75, 1.0])
+    mgrid = [0.5]
     logits_score = _logit_risk_score(val_payload["logits"])
     y3 = val_payload["y3"]
 
@@ -187,8 +164,6 @@ def _select_decision_calibration(
 def _apply_decision_calibration(
     payload: Dict[str, np.ndarray], stats, calib,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-"""
     ws = tuple(float(x) for x in calib["component_weights"])
     comp = (ws[0] * _normalize(payload["R_cons"], stats["R_cons"])
           + ws[1] * _normalize(payload["R_seq"],  stats["R_seq"])
@@ -198,13 +173,11 @@ def _apply_decision_calibration(
     return score, _predict_from_score(score, float(calib["eta_1"]), float(calib["eta_2"]))
 
 
-
+# -- Data collection -------------------------------------------------
 
 def _collect_split_outputs(
     model: TCRNet, loader, device: torch.device, config: Dict,
 ) -> Dict[str, np.ndarray]:
-    """
-"""
     model.eval()
     gate = float(config["paper_rules"].get("size_violation_gate", 0.20))
     out = {k: [] for k in ["R_cons", "R_seq", "R_rule", "anomaly_label", "anomaly_type",
@@ -233,7 +206,6 @@ def _collect_split_outputs(
 
 
 def _summarize(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
-    """..."""
     macro = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
     wf1   = float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
     p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, labels=[0, 1, 2], zero_division=0)
@@ -244,7 +216,6 @@ def _summarize(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
 
 
 def _export_details(split, out_dir, payload, total_scores, y_pred, eta):
-    """..."""
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for i in range(len(total_scores)):
@@ -276,11 +247,9 @@ def _export_details(split, out_dir, payload, total_scores, y_pred, eta):
         w.writeheader(); w.writerows(rows)
 
 
-
+# -- Training entry point --------------------------------------------
 
 def train(config: Dict) -> Dict:
-    """
-"""
     started = time.time()
     seed_everything(int(config["seed"]))
     device = resolve_device(config)
@@ -303,15 +272,15 @@ def train(config: Dict) -> Dict:
 
     for epoch in range(1, epochs + 1):
         model.train()
-        running = {"loss": 0.0, "l_pred": 0.0, "l_proto": 0.0, "l_seq": 0.0, "l_cls": 0.0}
+        running = {"loss": 0.0, "l_pred": 0.0, "l_seq": 0.0, "l_cls": 0.0}
         pbar = tqdm(train_l, desc=f"Epoch {epoch}", leave=False)
         for step, batch in enumerate(pbar, 1):
             batch = move_batch(batch, device)
-            # []  forward loss  reference bank 
+            # Single forward pass: outputs used for both loss and reference bank update
             o = model(batch)
             y3 = get_supervised_labels(batch, o["violations"], gate)
 
-            #  backward  reference bank
+            # Update reference banks BEFORE backward (using current-param outputs)
             with torch.no_grad():
                 model.update_reference_banks(o["z"], o["h_seq"],
                     batch["intent_id"], normal_mask=(y3 == 0), momentum=momentum)
@@ -326,7 +295,7 @@ def train(config: Dict) -> Dict:
             if step % int(config["paper_train"]["log_interval"]) == 0 or step == len(train_l):
                 pbar.set_postfix({"loss": f"{running['loss']/step:.4f}"})
 
-
+        # Validation
         train_out = _collect_split_outputs(model, train_l, device, config)
         stats = _fit_norm_stats({"R_cons": train_out["R_cons"], "R_seq": train_out["R_seq"],
                                   "R_rule": train_out["R_rule"]},
@@ -350,7 +319,7 @@ def train(config: Dict) -> Dict:
             if patience > 0 and stale >= patience:
                 break
 
-
+    # Final evaluation
     results = evaluate(config, str(best_path),
                        external_loaders=(train_l, val_l, test_l, meta))
     results["runtime"] = {"seconds": float(time.time() - started),
@@ -364,8 +333,6 @@ def train(config: Dict) -> Dict:
 def evaluate(
     config: Dict, checkpoint_path: str, external_loaders=None,
 ) -> Dict:
-    """
-"""
     seed_everything(int(config["seed"]))
     device = resolve_device(config)
     if external_loaders is None:

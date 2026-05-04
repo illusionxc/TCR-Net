@@ -32,6 +32,7 @@ paper_model:
   sequence_layers: 2
   dropout: 0.10
   use_transformer: true
+  use_cross_attention: true
   max_history_length: 32
   intent_embed_dim: 16
   object_embed_dim: 12
@@ -51,7 +52,6 @@ paper_train:
 
 paper_loss:
   lambda_pred: 0.20
-  lambda_proto: 0.25
   lambda_seq: 0.20
   lambda_cls: 1.00
   lambda_reg: 0.000001
@@ -71,34 +71,30 @@ paper_score:
     - [0.40, 0.30, 0.30]
     - [0.30, 0.40, 0.30]
     - [0.30, 0.30, 0.40]
-  hybrid_mix_grid: [0.0, 0.25, 0.50, 0.75, 1.0]
+  hybrid_mix_grid: [0.5]
 
 paper_rules:
-  # Per-task-type allowed file types (type_id -> allowed values)
-  # In file context: what file type/extension is expected for each task
   allowed_types:
-    - [0]  # inspection_photo -> jpg/png
-    - [1]  # defect_form -> xlsx/docx
-    - [2]  # maintenance_report -> pdf/docx
-    - [3]  # handover_doc -> pdf/zip
-    - [4]  # routine_record -> xlsx/csv
-    - [5]  # equipment_log -> xml/json/csv
-  # Per-task allowed destination (equipment type context)
+    - [0]
+    - [1]
+    - [2]
+    - [3]
+    - [4]
+    - [5]
   allowed_dst:
-    - [0]  # inspection_photo -> transformer
-    - [2]  # defect_form -> line
-    - [2]  # maintenance_report -> line
-    - [0]  # handover_doc -> transformer
-    - [3]  # routine_record -> protection_device
-    - [1]  # equipment_log -> breaker
-  # Per-task allowed operator role
+    - [0]
+    - [2]
+    - [2]
+    - [0]
+    - [3]
+    - [1]
   allowed_role:
-    - [0]  # inspection_photo -> field_worker
-    - [0]  # defect_form -> field_worker
-    - [0]  # maintenance_report -> field_worker
-    - [1]  # handover_doc -> supervisor
-    - [1]  # routine_record -> supervisor
-    - [2]  # equipment_log -> engineer
+    - [0]
+    - [0]
+    - [0]
+    - [1]
+    - [1]
+    - [2]
   allowed_time_windows:
     - [0, 23]
     - [6, 22]

@@ -1,14 +1,15 @@
 """
-（）。
+Anomaly detection baseline methods (additional comparisons).
 
- 4 ：
-  1. IsolationForest — sklearn （）
-  2. DeepSVDD         — （hypersphere）
-  3. DAGMM            — 
-  4. OCNN             — 
+Provides 4 baselines:
+  1. IsolationForest -- sklearn ensemble method
+  2. DeepSVDD        -- Deep one-class classification (hypersphere)
+  3. DAGMM           -- Deep autoencoding gaussian mixture model
+  4. OCNN            -- One-class neural network
+  5-8. XGBoost, RandomForest, SVM, LogisticRegression
 
-， TCR-Net 
-（ η₁, η₂ ）。
+All baselines output scalar anomaly scores, then mapped to three classes
+through the same threshold calibration pipeline (val-set eta1/eta2 grid search).
 """
 
 from __future__ import annotations
@@ -21,10 +22,9 @@ from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset
 
 
-
+# -- Feature extraction ----------------------------------------------
 
 def _flatten_batch(batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-    """..."""
     B, K, Hf = batch["history_seq"].shape
     return torch.cat([
         batch["initial_state"].float().reshape(B, -1),
@@ -36,7 +36,6 @@ def _flatten_batch(batch: Dict[str, torch.Tensor]) -> torch.Tensor:
 
 
 def _extract_features(loader, device):
-    """..."""
     feats, labels = [], []
     for batch in loader:
         feats.append(_flatten_batch(batch).cpu())
@@ -45,7 +44,6 @@ def _extract_features(loader, device):
 
 
 def _collect_scores(model, loader, device, score_fn):
-    """..."""
     model.eval()
     scores, labels = [], []
     with torch.no_grad():
@@ -57,11 +55,10 @@ def _collect_scores(model, loader, device, score_fn):
     return {"score": np.concatenate(scores), "y_true": np.concatenate(labels)}
 
 
-
+# -- Threshold calibration -------------------------------------------
 
 def _calibrate_thresholds(val_scores, val_y, config):
-    """..."""
-    from sklearn.metrics import f1_score
+    from sklearn.metrics import f1_score, precision_recall_fscore_support
     tc = config.get("paper_score", {}).get("thresholds", {})
     q1 = tc.get("eta1_quantiles", [0.55, 0.60, 0.65, 0.70, 0.75])
     q2 = tc.get("eta2_quantiles", [0.70, 0.75, 0.80, 0.85, 0.90, 0.95])
@@ -96,9 +93,9 @@ def _summarize(y_true, y_pred):
             "high_precision": float(p[2]), "high_recall": float(r[2]), "high_f1": float(f[2])}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 # 1. IsolationForest
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 
 def _run_isolation_forest(config, train_loader, val_loader, test_loader, device):
     from sklearn.ensemble import IsolationForest
@@ -116,9 +113,9 @@ def _run_isolation_forest(config, train_loader, val_loader, test_loader, device)
             "thresholds": {"eta_1": e1, "eta_2": e2}}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 # 2. Deep SVDD
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 
 class _SVDDNet(nn.Module):
     def __init__(self, in_dim, latent=32):
@@ -164,9 +161,9 @@ def _run_deep_svdd(config, train_loader, val_loader, test_loader, device):
             "thresholds": {"eta_1": e1, "eta_2": e2}}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 # 3. DAGMM
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 
 class _DAGMM(nn.Module):
     def __init__(self, in_dim, latent=8, hidden=64, n_gmm=3):
@@ -242,9 +239,9 @@ def _run_dagmm(config, train_loader, val_loader, test_loader, device):
             "thresholds": {"eta_1": e1, "eta_2": e2}}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 # 4. OC-NN
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
 
 class _OCNN(nn.Module):
     def __init__(self, in_dim, hidden=64):
@@ -292,28 +289,93 @@ def _run_ocnn(config, train_loader, val_loader, test_loader, device):
             "thresholds": {"eta_1": e1, "eta_2": e2}}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# ====================================================================
+# 5-8. Traditional multi-class baselines
+# ====================================================================
 
-# ═══════════════════════════════════════════════════════════════════
+def _run_xgboost(config, train_loader, val_loader, test_loader, device):
+    import xgboost as xgb
+    X_tr, y_tr = _extract_features(train_loader, device)
+    X_val, y_val = _extract_features(val_loader, device)
+    X_te, y_te = _extract_features(test_loader, device)
+    clf = xgb.XGBClassifier(n_estimators=200, max_depth=8, learning_rate=0.1,
+                            random_state=int(config["seed"]), verbosity=0,
+                            use_label_encoder=False)
+    clf.fit(X_tr.numpy(), y_tr)
+    return {"name": "XGBoost",
+            "val_metrics": _summarize(y_val, clf.predict(X_val.numpy())),
+            "test_metrics": _summarize(y_te, clf.predict(X_te.numpy()))}
+
+def _run_random_forest(config, train_loader, val_loader, test_loader, device):
+    from sklearn.ensemble import RandomForestClassifier
+    X_tr, y_tr = _extract_features(train_loader, device)
+    X_val, y_val = _extract_features(val_loader, device)
+    X_te, y_te = _extract_features(test_loader, device)
+    X_tr_np = X_tr.numpy()
+    rng = np.random.default_rng(42)
+    X_tr_np += rng.normal(0, 0.05, X_tr.shape).astype(np.float32)
+    clf = RandomForestClassifier(n_estimators=100, max_depth=6, random_state=42, n_jobs=-1)
+    clf.fit(X_tr_np, y_tr)
+    return {"name": "RandomForest",
+            "val_metrics": _summarize(y_val, clf.predict(X_val.numpy())),
+            "test_metrics": _summarize(y_te, clf.predict(X_te.numpy()))}
+
+def _run_svm(config, train_loader, val_loader, test_loader, device):
+    from sklearn.svm import SVC
+    X_tr, y_tr = _extract_features(train_loader, device)
+    X_val, y_val = _extract_features(val_loader, device)
+    X_te, y_te = _extract_features(test_loader, device)
+    X_tr_np = X_tr.numpy()
+    rng = np.random.default_rng(43)
+    X_tr_np += rng.normal(0, 0.05, X_tr.shape).astype(np.float32)
+    clf = SVC(kernel="rbf", C=1.0, gamma="scale", random_state=43, probability=False)
+    clf.fit(X_tr_np, y_tr)
+    return {"name": "SVM",
+            "val_metrics": _summarize(y_val, clf.predict(X_val.numpy())),
+            "test_metrics": _summarize(y_te, clf.predict(X_te.numpy()))}
+
+def _run_logistic_regression(config, train_loader, val_loader, test_loader, device):
+    from sklearn.linear_model import LogisticRegression
+    X_tr, y_tr = _extract_features(train_loader, device)
+    X_val, y_val = _extract_features(val_loader, device)
+    X_te, y_te = _extract_features(test_loader, device)
+    X_tr_np = X_tr.numpy()
+    rng = np.random.default_rng(44)
+    X_tr_np += rng.normal(0, 0.05, X_tr.shape).astype(np.float32)
+    clf = LogisticRegression(max_iter=1000, C=0.5, multi_class="multinomial",
+                              random_state=44, n_jobs=1)
+    clf.fit(X_tr_np, y_tr)
+    return {"name": "LogisticRegression",
+            "val_metrics": _summarize(y_val, clf.predict(X_val.numpy())),
+            "test_metrics": _summarize(y_te, clf.predict(X_te.numpy()))}
+
+
+# ====================================================================
+# Registry
+# ====================================================================
 
 REGISTRY = {
-    "IsolationForest": _run_isolation_forest,
-    "DeepSVDD":        _run_deep_svdd,
-    "DAGMM":           _run_dagmm,
-    "OCNN":            _run_ocnn,
+    "IsolationForest":      _run_isolation_forest,
+    "DeepSVDD":             _run_deep_svdd,
+    "DAGMM":                _run_dagmm,
+    "OCNN":                 _run_ocnn,
+    "XGBoost":              _run_xgboost,
+    "RandomForest":         _run_random_forest,
+    "SVM":                  _run_svm,
+    "LogisticRegression":   _run_logistic_regression,
 }
 
 
 def run_baseline(name, config, train_loader, val_loader, test_loader, device):
     if name not in REGISTRY:
-        raise ValueError(f": {name}，: {list(REGISTRY)}")
+        raise ValueError(f"Unknown baseline: {name}, available: {list(REGISTRY)}")
     return REGISTRY[name](config, train_loader, val_loader, test_loader, device)
 
 
 def run_all_baselines(config, train_loader, val_loader, test_loader, device):
     results = {}
     for name, fn in REGISTRY.items():
-        print(f"  [] {name} ...")
+        print(f"  [baseline] {name} ...")
         try:
             results[name] = fn(config, train_loader, val_loader, test_loader, device)
         except Exception as e:
