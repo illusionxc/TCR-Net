@@ -63,7 +63,6 @@ python tcrnet_paper_pipeline.py all --config configs/tcr_net_paper.yaml --jobs 4
 | `evaluate` | Evaluate a single checkpoint |
 | `export` | Export experiment results as CSV tables |
 | `plot` | Generate paper figures |
-| `latex` | LaTeX integration (fill tables, insert figures) |
 | `all` | Full pipeline: generate -> train -> export -> plot |
 
 ## Model Architecture
@@ -76,10 +75,4 @@ TCR-Net processes each transmission event through:
 4. **R_rule** — Rule-conflict score: weighted sum of 5 explicit business-rule violations
 5. **Fusion** — Normalized component scores fused via learned weights, mapped to {Low, Medium, High} through validation-tuned thresholds
 
-## Citation
 
-If you use this code in your research, please cite the associated paper (under review).
-
-## License
-
-Released for academic and research purposes.
