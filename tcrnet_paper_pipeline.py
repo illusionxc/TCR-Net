@@ -1,42 +1,5 @@
-#!/usr/bin/env python3
-"""
-TCR-Net paper experiment unified entry point.
 
-Usage:
-    # 1. Generate synthetic data
-    python tcrnet_paper_pipeline.py generate --config configs/tcr_net_paper.yaml
 
-    # 2. Train (multiple modes)
-    python tcrnet_paper_pipeline.py train --config configs/tcr_net_paper.yaml \
-        --mock-dir data/mock_station_v1 [--baselines] [--ablations] [--all] [--jobs 4]
-
-    # 3. Export experiment data as CSV
-    python tcrnet_paper_pipeline.py export --config configs/tcr_net_paper.yaml \
-        --output-root exp_data/TCRNet_Final_Figures/tcr_paper
-
-    # 4. Plot
-    python tcrnet_paper_pipeline.py plot --baseline-summary <path> --out-dir <path>
-
-    # 5. LaTeX integration
-    python tcrnet_paper_pipeline.py latex fill --tex paper.tex --report-data-dir <dir>
-    python tcrnet_paper_pipeline.py latex insert --tex paper.tex --figure-dir <dir>
-
-    # 6. Full pipeline
-    python tcrnet_paper_pipeline.py all --config ... --mock-dir ...
-
-Subcommands:
-  generate    Generate synthetic dataset
-  train       Train models (--single, --baselines, --ablations, --deep, --all)
-  evaluate    Evaluate a single checkpoint
-  export      Export experiment data as CSV
-  plot        Generate paper figures
-  latex       LaTeX integration (fill, insert)
-  all         Full pipeline: generate + train + export + plot
-
-Architecture:
-    This script is the single entry point. It imports core logic from tcrnet/.
-    Internal modules (prefixed with _) are not exposed via tcrnet/__init__.py.
-"""
 
 from __future__ import annotations
 
@@ -57,9 +20,8 @@ from tcrnet import load_config, baseline_variants, ablation_variants, train
 from tcrnet.data.synthetic import export_mock_dataset, build_dataloaders
 
 
-# Subcommand: generate
-
 def cmd_generate(args: argparse.Namespace) -> None:
+
     config = load_config(args.config)
     seed = int(config["seed"])
     mock_dir = Path(args.mock_dir)
@@ -70,9 +32,8 @@ def cmd_generate(args: argparse.Namespace) -> None:
     print(f"[generate] Dataset saved to {mock_dir.resolve()}")
 
 
-# Subcommand: train
-
 def _is_complete(output_dir: str | Path) -> bool:
+
     out = Path(output_dir)
     return (out / "best.pt").exists() or (out / "best_tcr.pt").exists()
 
@@ -87,6 +48,7 @@ def _load_metrics(output_dir: str | Path) -> dict[str, Any]:
 
 
 def _retarget_output_dirs(variants: dict, output_root: Path, suite: str) -> dict:
+
     retargeted = {}
     for name, cfg in variants.items():
         c = deepcopy(cfg)
@@ -104,6 +66,7 @@ def _retarget_output_dirs(variants: dict, output_root: Path, suite: str) -> dict
 
 
 def _train_worker(task: dict) -> dict:
+
     name = task["name"]
     suite = task["suite"]
     cfg = task["config"]
@@ -132,10 +95,12 @@ def _write_summary(path: Path, mock_dir: Path, rows: list[dict]) -> None:
 
 
 def cmd_train(args: argparse.Namespace) -> None:
+
+
     config = load_config(args.config)
     mock_dir = Path(args.mock_dir)
 
-    # Single model mode
+
     if args.single:
         cfg = deepcopy(config)
         cfg["data"]["source"] = "station_jsonl"
@@ -144,10 +109,10 @@ def cmd_train(args: argparse.Namespace) -> None:
             cfg["output_dir"] = args.output_dir
         result = train(cfg)
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        print(f"[train] Complete. Test Macro-F1: {result.get('test', {}).get('macro_f1', 'N/A')}")
+        print(f"[train] Training finished. Test Macro-F1: {result.get('test', {}).get('macro_f1', 'N/A')}")
         return
 
-    # Multi-model mode
+
     base_cfg = deepcopy(config)
     base_cfg["data"]["source"] = "station_jsonl"
     base_cfg["data"]["data_dir"] = str(mock_dir.resolve())
@@ -155,6 +120,7 @@ def cmd_train(args: argparse.Namespace) -> None:
     output_root = Path(args.output_root or "exp_data/TCRNet_Final_Figures/tcr_paper")
     jobs = max(1, int(args.jobs or 4))
     force = args.force
+
 
     tasks = []
     want_baselines = args.all or args.baselines
@@ -176,15 +142,17 @@ def cmd_train(args: argparse.Namespace) -> None:
 
     print(json.dumps({"tasks": len(tasks), "jobs": jobs}, ensure_ascii=False))
 
+
     deep_tasks = [t for t in tasks if t["suite"] == "deep"]
     normal_tasks = [t for t in tasks if t["suite"] != "deep"]
     all_rows = []
 
-    # Parallel training of TCR-Net variants
+
     if normal_tasks:
         from tcrnet_paper_pipeline import _train_worker as worker_fn
 
         if jobs > 1:
+
             run_dir = Path(f"runs/parallel_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
             task_dir = run_dir / "tasks"
             result_dir = run_dir / "results"
@@ -224,7 +192,7 @@ def cmd_train(args: argparse.Namespace) -> None:
                     if item["result_path"].exists():
                         row = json.loads(item["result_path"].read_text(encoding="utf-8"))
                     else:
-                        row = {"name": item["task"]["name"], "suite": item["task"]["suite"], "output_dir": item["task"]["config"]["output_dir"], "status": "failed", "error": "worker exited unexpectedly"}
+                        row = {"name": item["task"]["name"], "suite": item["task"]["suite"], "output_dir": item["task"]["config"]["output_dir"], "status": "failed", "error": f"worker exited unexpectedly"}
                     all_rows.append(row)
                     status = row.get("status", "unknown")
                     err = row.get("error", "")
@@ -240,6 +208,7 @@ def cmd_train(args: argparse.Namespace) -> None:
                 if pending or running:
                     time.sleep(2.0)
         else:
+
             for task in normal_tasks:
                 row = _train_worker(task)
                 all_rows.append(row)
@@ -250,12 +219,13 @@ def cmd_train(args: argparse.Namespace) -> None:
                 else:
                     print(f"  [done] {task['name']}: {status}")
 
+
         baseline_rows = [r for r in all_rows if r["suite"] == "baselines"]
         ablation_rows = [r for r in all_rows if r["suite"] == "ablations"]
         _write_summary(output_root / "baselines" / "summary.json", mock_dir, baseline_rows)
         _write_summary(output_root / "ablations" / "summary.json", mock_dir, ablation_rows)
 
-    # Deep baselines
+
     if deep_tasks:
         print("[train] Running deep baselines ...")
         try:
@@ -269,18 +239,17 @@ def cmd_train(args: argparse.Namespace) -> None:
             deep_results = run_all_baselines(dl_cfg, train_l, val_l, test_l, device)
             (output_root / "baselines" / "deep_baselines_summary.json").write_text(
                 json.dumps(deep_results, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"  => Deep baselines complete.")
+            print(f"  => Deep baselines finished.")
         except Exception as e:
             print(f"  => Deep baselines failed: {e}")
             import traceback
             traceback.print_exc()
 
-    print(f"[train] Training complete. Output: {output_root}")
+    print(f"[train] Training finished. Output directory: {output_root}")
 
-
-# Subcommand: evaluate
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
+
     from tcrnet.training.trainer import evaluate as evaluate_model
     config = load_config(args.config)
     config["data"]["source"] = "station_jsonl"
@@ -290,22 +259,23 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     print(f"[evaluate] Test Macro-F1: {results.get('test', {}).get('macro_f1', 'N/A')}")
 
 
-# Subcommand: export
-
 def cmd_export(args: argparse.Namespace) -> None:
+
     from tcrnet._export_report import run_all_exports
     config = load_config(args.config)
     output_root = Path(args.output_root)
     detail_csv = args.detail_csv
     if detail_csv is None:
+
         for cand_name in ["tcr_net", "tcr_net_full"]:
             cand = output_root / "baselines" / cand_name / "details" / "test_details.csv"
             if cand.exists():
                 detail_csv = str(cand)
                 break
         if detail_csv is None:
-            print("[export] Warning: TCR-Net test_details.csv not found, fig_5_12 skipped")
+            print("[export] Warning: TCR-Net test_details.csv was not found; fig_5_12 will be skipped")
             detail_csv = ""
+
     mock_dir = args.mock_dir
     if mock_dir is None:
         mock_dir = config["data"].get("data_dir", "data/mock_station_v1")
@@ -317,21 +287,22 @@ def cmd_export(args: argparse.Namespace) -> None:
         mock_data_dir=mock_dir,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    print(f"[export] Report saved to {result['report_data_dir']}")
+    print(f"[export] Reports exported to {result['report_data_dir']}")
 
-
-# Subcommand: plot
 
 def cmd_plot(args: argparse.Namespace) -> None:
+
     from tcrnet._plot_results import plot_all_figures
+
 
     if args.report_data_dir:
         report_dir = args.report_data_dir
     elif args.baseline_summary:
         report_dir = str(Path(args.baseline_summary).resolve().parent.parent / "report_data")
     else:
-        print("[plot] Must specify --report-data-dir or --baseline-summary")
+        print("[plot] Specify --report-data-dir or --baseline-summary")
         return
+
 
     detail_csv = args.detail_csv
     if not detail_csv:
@@ -346,12 +317,11 @@ def cmd_plot(args: argparse.Namespace) -> None:
         output_dir=args.out_dir,
         detail_csv=detail_csv or None,
     )
-    print(f"[plot] Complete. Generated {len(generated)} figures at {args.out_dir}")
+    print(f"[plot] Finished. Generated {len(generated)} figures in {args.out_dir}")
 
-
-# Subcommand: latex
 
 def cmd_latex(args: argparse.Namespace) -> None:
+
     from tcrnet._latex_tools import fill_tables_and_figures, insert_figures
 
     if args.latex_cmd == "fill":
@@ -377,21 +347,22 @@ def cmd_latex(args: argparse.Namespace) -> None:
         print(f"[latex] Unknown subcommand: {args.latex_cmd}")
 
 
-# Subcommand: all (full pipeline)
-
 def cmd_all(args: argparse.Namespace) -> None:
+
     output_root = Path(args.output_root or "exp_data/TCRNet_Final_Figures/tcr_paper")
     figure_dir = Path(args.figure_dir or "exp_data/TCRNet_Final_Figures/figures")
 
     print("=" * 60)
-    print("TCR-Net Full Pipeline")
+    print("TCR-Net full paper experiment pipeline")
     print("=" * 60)
 
-    print("\n[Step 1/4] Generating synthetic data ...")
+
+    print("\n[Step 1/4] Generate synthetic data ...")
     gen_args = argparse.Namespace(config=args.config, mock_dir=args.mock_dir)
     cmd_generate(gen_args)
 
-    print("\n[Step 2/4] Training models ...")
+
+    print("\n[Step 2/4] Train models ...")
     train_args = argparse.Namespace(
         config=args.config, mock_dir=args.mock_dir,
         single=False, all=True, baselines=False, ablations=False, deep=True,
@@ -400,14 +371,16 @@ def cmd_all(args: argparse.Namespace) -> None:
     )
     cmd_train(train_args)
 
-    print("\n[Step 3/4] Exporting results ...")
+
+    print("\n[Step 3/4] Export experiment data ...")
     export_args = argparse.Namespace(
         config=args.config, output_root=str(output_root),
         detail_csv=None, mock_dir=args.mock_dir,
     )
     cmd_export(export_args)
 
-    print("\n[Step 4/4] Generating figures ...")
+
+    print("\n[Step 4/4] Generate figures ...")
     plot_args = argparse.Namespace(
         report_data_dir=str(output_root / "report_data"),
         baseline_summary=str(output_root / "baselines" / "summary.json"),
@@ -417,15 +390,14 @@ def cmd_all(args: argparse.Namespace) -> None:
     cmd_plot(plot_args)
 
     print("\n" + "=" * 60)
-    print(f"Full pipeline complete!")
+    print(f"Full pipeline finished.")
     print(f"  Models: {output_root}")
     print(f"  Figures: {figure_dir}")
     print("=" * 60)
 
 
-# Worker mode (child process entry)
-
 def _worker_mode(config_path: str) -> None:
+
     payload = json.loads(Path(config_path).read_text(encoding="utf-8"))
     result = _train_worker(payload["task"])
     Path(payload["result_path"]).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -434,66 +406,72 @@ def _worker_mode(config_path: str) -> None:
         raise SystemExit(1)
 
 
-# Main entry
-
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="TCR-Net paper experiment unified entry point",
+        description="Unified entrypoint for TCR-Net paper experiments",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Subcommands:
-  generate    Generate synthetic dataset
+  generate    Generate the synthetic dataset
   train       Train models (--single / --baselines / --ablations / --deep / --all)
   evaluate    Evaluate a single checkpoint
-  export      Export experiment data as CSV
-  plot        Generate paper figures
+  export      Export experiment data as CSV reports
+  plot        Generate manuscript figures
   latex       LaTeX integration (fill | insert)
-  all         generate + train + export + plot full pipeline
+  all         generate + train + export + plot
 
 Examples:
   python tcrnet_paper_pipeline.py all --config configs/tcr_net_paper.yaml
+
   python tcrnet_paper_pipeline.py train --config configs/tcr_net_paper.yaml --baselines
+
   python tcrnet_paper_pipeline.py export --output-root exp_data/TCRNet_Final_Figures/tcr_paper
-  python tcrnet_paper_pipeline.py plot --baseline-summary path/to/summary.json --out-dir figures
+  python tcrnet_paper_pipeline.py plot --baseline-summary exp_data/TCRNet_Final_Figures/tcr_paper/baselines/summary.json --out-dir figures
         """,
     )
     parser.add_argument("--worker-config", default=None, help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command")
 
-    p = sub.add_parser("generate", help="Generate synthetic dataset")
+
+    p = sub.add_parser("generate", help="Generate the synthetic dataset")
     p.add_argument("--config", default="configs/tcr_net_paper.yaml")
     p.add_argument("--mock-dir", default="data/mock_station_v1")
+
 
     p = sub.add_parser("train", help="Train models")
     p.add_argument("--config", default="configs/tcr_net_paper.yaml")
     p.add_argument("--mock-dir", default="data/mock_station_v1")
     p.add_argument("--output-root", default=None)
-    p.add_argument("--output-dir", default=None, help="Output dir for single model mode")
+    p.add_argument("--output-dir", default=None, help="Output directory for single-model mode")
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--force", action="store_true")
-    p.add_argument("--single", action="store_true", help="Train single model (requires --output-dir)")
-    p.add_argument("--baselines", action="store_true", help="Train 7 baseline variants")
-    p.add_argument("--ablations", action="store_true", help="Train 6 ablation variants")
-    p.add_argument("--deep", action="store_true", help="Train 4 deep baselines")
+    p.add_argument("--single", action="store_true", help="Train a single model; requires --output-dir")
+    p.add_argument("--baselines", action="store_true", help="Train seven baseline variants")
+    p.add_argument("--ablations", action="store_true", help="Train six ablation variants")
+    p.add_argument("--deep", action="store_true", help="Train four deep baselines")
     p.add_argument("--skip-deep", action="store_true", help="Skip deep baselines")
-    p.add_argument("--all", action="store_true", help="Train all (baselines + ablations + deep)")
+    p.add_argument("--all", action="store_true", help="Train all variants: baselines, ablations, and deep baselines")
+
 
     p = sub.add_parser("evaluate", help="Evaluate a single checkpoint")
     p.add_argument("--config", default="configs/tcr_net_paper.yaml")
     p.add_argument("--mock-dir", default="data/mock_station_v1")
     p.add_argument("--checkpoint", required=True)
 
-    p = sub.add_parser("export", help="Export experiment data as CSV")
+
+    p = sub.add_parser("export", help="Export experiment data as CSV reports")
     p.add_argument("--config", default="configs/tcr_net_paper.yaml")
     p.add_argument("--output-root", required=True)
     p.add_argument("--detail-csv", default=None)
     p.add_argument("--mock-dir", default=None)
 
-    p = sub.add_parser("plot", help="Generate paper figures")
+
+    p = sub.add_parser("plot", help="Generate manuscript figures")
     p.add_argument("--report-data-dir", default=None)
     p.add_argument("--baseline-summary", default=None)
     p.add_argument("--detail-csv", default=None)
     p.add_argument("--out-dir", default="outputs/figures")
+
 
     p = sub.add_parser("latex", help="LaTeX integration")
     p.add_argument("latex_cmd", choices=["fill", "insert"])
@@ -503,9 +481,10 @@ Examples:
     p.add_argument("--figure-dest-dir", default=None)
     p.add_argument("--latex-figure-dir", default="figures_auto")
     p.add_argument("--figure-dir", default=None)
-    p.add_argument("--compact", action="store_true", help="Compact mode (remove minor tables/figures)")
+    p.add_argument("--compact", action="store_true", help="Compact mode; remove secondary tables and figures")
 
-    p = sub.add_parser("all", help="Full pipeline (generate + train + export + plot)")
+
+    p = sub.add_parser("all", help="Full pipeline")
     p.add_argument("--config", default="configs/tcr_net_paper.yaml")
     p.add_argument("--mock-dir", default="data/mock_station_v1")
     p.add_argument("--output-root", default=None)
@@ -515,9 +494,11 @@ Examples:
 
     args = parser.parse_args()
 
+
     if args.worker_config:
         _worker_mode(args.worker_config)
         return
+
 
     route = {
         "generate": cmd_generate,

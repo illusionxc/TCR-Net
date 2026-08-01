@@ -1,77 +1,120 @@
 # TCR-Net
 
-**Pre-Transmission Risk Grading for Power Inspection Files Using Context-Consistency Modeling**
+**Context-aware risk grading for pre-transmission power-grid file sharing**
 
-TCR-Net is a lightweight neural network for three-class risk assessment of power inspection file transmissions. It computes three complementary risk scores — semantic consistency, temporal deviation, and rule conflict — and fuses them through calibrated thresholds into an operational grade (release / review / block). Component scores and rule flags are exported alongside the grade as auditable review evidence.
+TCR-Net grades each pending file-transmission event before it enters a shared work node. Given file-structure, semantic, context, history, and rule evidence, the model predicts one of three operational actions: **release**, **review**, or **block**. It also exports the component scores and rule flags used by the decision, so each prediction can be inspected after deployment.
 
-## Repository Structure
+This repository contains the lightweight code package used for the revised manuscript experiments. Large generated datasets, checkpoints, logs, and figures are intentionally excluded; they can be regenerated with the scripts below.
 
-```
-├── tcrnet_paper_pipeline.py    # Unified CLI entry point
-├── tcrnet/                     # Core library
-│   ├── config.py               YAML configuration loader
-│   ├── experiments.py          Variant configuration generators
-│   ├── data/synthetic.py       Synthetic data generation and loading
+## Repository layout
+
+```text
+TCR-Net/
+├── configs/
+├── tcrnet/
+│   ├── data/
 │   ├── models/
-│   │   ├── tcrnet.py           TCR-Net model definition
-│   │   └── baselines.py        Additional baselines
-│   ├── training/trainer.py     Training loop, threshold calibration, evaluation
-│   ├── _export_report.py       Experiment data to CSV tables (internal)
-│   ├── _plot_results.py        Figure generation (internal)
-├── configs/                    # YAML experiment configs
+│   ├── training/
+│   ├── config.py
+│   ├── experiments.py
+│   ├── _export_report.py
+│   ├── _plot_results.py
+│   └── _latex_tools.py
+├── cctnet/
+├── scripts/
+├── revision_experiments.py
+├── tcrnet_paper_pipeline.py
+├── reevaluate_all_checkpoints.py
+├── REVISION_EXPERIMENTS.md
 └── requirements.txt
 ```
 
-## Quick Start
+## Environment
 
-### Requirements
-- Python 3.10+
-- PyTorch 2.0+
+Python 3.10+ is recommended.
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Generate Synthetic Data
+The revised experiment script automatically searches for a Python executable with `torch`, `numpy`, `sklearn`, `yaml`, and `xgboost`. If needed, set it explicitly:
+
 ```bash
-python tcrnet_paper_pipeline.py generate --config configs/tcr_net_paper.yaml
+PYTHON_BIN=python bash scripts/run_all_revision_experiments.sh
 ```
 
-### Train All Variants
+## Reproduce the revised experiments
+
+For a quick smoke test:
+
 ```bash
-python tcrnet_paper_pipeline.py train --config configs/tcr_net_paper.yaml --all --jobs 4
+QUICK=1 bash scripts/run_all_revision_experiments.sh
 ```
 
-### Export Results & Generate Figures
+For the full revised experiment suite:
+
 ```bash
-python tcrnet_paper_pipeline.py export --output-root runs/tcr_paper
-python tcrnet_paper_pipeline.py plot --report-data-dir runs/tcr_paper/report_data --out-dir figures
+bash scripts/run_all_revision_experiments.sh
 ```
 
-### Full Pipeline
+The full runner executes the main comparison, component ablations, attention-direction checks, history-window checks, leave-one-profile transfer, generator-seed robustness, and a frozen confirmatory evaluation. Completed tasks are skipped automatically, so interrupted runs can be resumed by launching the same command again.
+
+Useful options:
+
 ```bash
-python tcrnet_paper_pipeline.py all --config configs/tcr_net_paper.yaml --jobs 4
+JOBS=4 bash scripts/run_all_revision_experiments.sh
+FORCE=1 bash scripts/run_all_revision_experiments.sh
+INCLUDE_GENERATOR_ROBUSTNESS=0 bash scripts/run_all_revision_experiments.sh
+INCLUDE_CONFIRMATORY=0 bash scripts/run_all_revision_experiments.sh
 ```
 
-## Pipeline Subcommands
+Default outputs are written to:
 
-| Command | Description |
-|---------|-------------|
-| `generate` | Generate synthetic dataset |
-| `train` | Train models (use --all, --baselines, --ablations, or --single) |
-| `evaluate` | Evaluate a single checkpoint |
-| `export` | Export experiment results as CSV tables |
+- `data/revision_experiments/`
+- `exp_data/revision_2026_final/`
+- `exp_data/revision_2026_confirmatory/`
+- `runs/`
+
+These generated directories are ignored by git.
+
+## Reproduce the original paper pipeline
+
+The original pipeline remains available for backward compatibility:
+
+```bash
+python tcrnet_paper_pipeline.py all \
+  --config configs/tcr_net_paper.yaml \
+  --mock-dir data/mock_station_v1 \
+  --jobs 4
+```
+
+Main subcommands:
+
+| Command | Purpose |
+| --- | --- |
+| `generate` | Generate the synthetic event dataset |
+| `train` | Train TCR-Net, baselines, or ablations |
+| `evaluate` | Evaluate a checkpoint |
+| `export` | Export result tables |
 | `plot` | Generate paper figures |
-| `all` | Full pipeline: generate -> train -> export -> plot |
+| `latex` | Fill LaTeX tables and figure references |
+| `all` | Run generation, training, export, and plotting |
 
-## Model Architecture
+## Data model
 
-TCR-Net processes each transmission event through:
+Each sample is a pre-transmission event represented by typed file, source, destination, operator-role, timestamp, context, history, and rule fields. The generator instantiates realistic operational constraints such as allowed record category, destination, role, time, file size, and operation stage. Semi-real profile mixtures model three grid-operation scenarios: transmission inspection, renewable-station operation, and substation maintenance.
 
-1. **Shared Encoder** — Cross-modal Transformer aligning file-structure, semantic, and context features
-2. **R_cons** — Semantic-consistency score: distance to task-class prototype + attribute prediction error
-3. **R_seq** — Temporal-deviation score: Mahalanobis distance from recent behavior trajectory
-4. **R_rule** — Rule-conflict score: weighted sum of 5 explicit business-rule violations
-5. **Fusion** — Normalized component scores fused via learned weights, mapped to {Low, Medium, High} through validation-tuned thresholds
+The repository releases the generator and experiment code, not operational records. Site identifiers, operator identities, device identifiers, and exact business thresholds are represented by de-identified categories or ranges.
 
+## Notes for reviewers
 
+- Run `QUICK=1 bash scripts/run_all_revision_experiments.sh` first to check the environment.
+- Use the full runner for manuscript-level results.
+- See `REVISION_EXPERIMENTS.md` for the complete experiment matrix and aggregation protocol.
+- Regenerated outputs are intentionally excluded from version control.
+
+## License
+
+Released for academic and research purposes.
